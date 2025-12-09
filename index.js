@@ -57,10 +57,21 @@ app.post('/users',async (req,res)=>{
   res.send(result)
 })
 
+// get user role
+ app.get('/users/:email/role', async (req, res) => {
+      const email = req.params.email
+      const user = await usercollection.findOne({ email })
+      res.send({ role: user?.role || 'Buyer' , status:user?.status || 'pending'})
+    })
 
 //our products home page
 app.get('/our-products',async(req,res)=>{
-    const result=await productCollection.find().limit(6).toArray()
+  const limit=Number(req.query.limit)
+  if(limit){
+    const data= await productCollection.find().limit(6).toArray()
+    return res.send(data)
+  }
+    const result=await productCollection.find().toArray()
     res.send(result)
 })
 
