@@ -142,15 +142,24 @@ async function run() {
 // show products on home page
 app.post('/our-products',async(req,res)=>{
   const data=req.body
+  data.createdAt=new Date().toString()
+  const id=data._id
+  const query={_id:new ObjectId(id) }
+  const update={
+      $set:{ showonHome:'added'}
+  }
+ 
   const result= await ourproductcollection.insertOne(data)
-  res.send(result)
+  const updateresult= await productCollection.updateOne(query,update)
+  
+  res.send({home:result, prduct:updateresult})
 })
 
 
      //our products home page
     app.get('/our-products', async (req, res) => {
      
-      const result = await ourproductcollection.find().limit(6).toArray()
+      const result = await ourproductcollection.find() .sort({ createdAt: -1 }).limit(6).toArray()
       res.send(result)
     })
 
@@ -167,6 +176,22 @@ app.post('/our-products',async(req,res)=>{
       const query = { _id: new ObjectId(id) }
       const result = await productCollection.deleteOne(query)
       res.send(result)
+    })
+
+    //product update by admin
+    app.patch('/product-update/:id',async(req,res)=>{
+      const updateinfo=req.body
+     
+      const id=req.params.id
+      const query={_id:new ObjectId(id)}
+      const update={
+         $set: updateinfo
+
+      }
+      const result=await productCollection.updateOne(query,update)
+      const resulthome=await ourproductcollection.updateOne(query,update)
+
+      res.send({all:result,home:resulthome})
     })
 
     // delivery collection
