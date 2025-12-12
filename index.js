@@ -2,8 +2,22 @@ const express = require('express')
 const app = express()
 require('dotenv').config()
 const cors = require('cors')
-const { MongoClient,ServerApiVersion, ObjectId } = require('mongodb')
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 const port = process.env.PORT || 3000
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY)
+
+// create tracking id
+const crypto = require("crypto");
+const { count } = require('console');
+
+function generateTrackingId() {
+  const prefix = "PRCL"; // your brand prefix
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, ""); // YYYYMMDD
+  const random = crypto.randomBytes(3).toString("hex").toUpperCase(); // 6-char random hex
+
+  return `${prefix}-${date}-${random}`;
+}
+
 
 
 //mideleware
@@ -30,63 +44,254 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
-   const db=client.db('final_project_garments')
-   const productCollection=db.collection('products')
-   const usercollection=db.collection('users')
+    const db = client.db('final_project_garments')
+    const productCollection = db.collection('products')
+    const ourproductcollection=db.collection('ourproducts')
+    const usercollection = db.collection('users')
+    const trackingcollection = db.collection('tracking')
+    const deliverycollection = db.collection('delivery')
+    const paymentcollection=db.collection('payment')
 
-//users
-app.post('/users',async (req,res)=>{
-  const userinfo=req.body
-  userinfo.status='pending'
-  userinfo.createdAt=new Date().toString()
-  userinfo.logintime=new Date().toString()
-  const query={email:userinfo.email}
-  const findUser= await usercollection.findOne(query)
-  if(findUser){
-   const update={
-  $set:{
-    logintime:new Date().toISOString()
-  }
- }
+    //for parcel tracking
+    const logTracking = async (trackingId, status) => {
+      const log = {
+        trackingId,
+        status,
+        details: status.split('-').join(' '),
+        createdAt: new Date().toString
+      }
+      const result = await trackingcollection.insertOne(log)
+      return result
+    }
 
-    const updatelogintime= await usercollection.updateOne(query,update)
-    return res.send(updatelogintime)
-  }
 
-  const result=await usercollection.insertOne(userinfo)
+
+    //users related api 
+
+    app.post('/users', async (req, res) => {
+      const userinfo = req.body
+      userinfo.status = 'pending'
+      userinfo.createdAt = new Date().toString()
+      userinfo.logintime = new Date().toString()
+      const query = { email: userinfo.email }
+      const findUser = await usercollection.findOne(query)
+      if (findUser) {
+        const update = {
+          $set: {
+            logintime: new Date().toISOString()
+          }
+        }
+
+        const updatelogintime = await usercollection.updateOne(query, update)
+        return res.send(updatelogintime)
+      }
+
+      const result = await usercollection.insertOne(userinfo)
+      res.send(result)
+    })
+
+    // get user role
+    app.get('/users/:email/role', async (req, res) => {
+      const email = req.params.email
+      const user = await usercollection.findOne({ email })
+      res.send({ role: user?.role || 'Buyer', status: user?.status || 'pending' })
+    })
+
+    // get all users for admin
+    app.get('/users', async (req, res) => {
+      const result = await usercollection.find().toArray()
+      res.send(result)
+    })
+
+    // user status update
+    app.patch('/users/:id',async(req,res)=>{
+      const status=req.body.status
+      
+      const id=req.params.id
+      const query={_id:new ObjectId (id)}
+
+      const update={
+        $set:{
+         status:status
+        }
+      }
+      const result=await usercollection.updateOne(query,update)
+      res.send(result)
+    })
+
+    // product related api
+
+    // add product api
+    app.post('/products',async(req,res)=>{
+      const productInfo=req.body
+      const trackingId=generateTrackingId()
+      productInfo.trackingId=trackingId
+      productInfo.createdAt=new Date().toString()
+      productInfo.showonHomePage='Accept'
+      const result=await productCollection.insertOne(productInfo)
+      res.send(result)
+    })
+
+    //All products products 
+    app.get('/all-products', async (req, res) => {
+     
+      const result = await productCollection.find().toArray()
+      res.send(result)
+    })
+
+// show products on home page
+app.post('/our-products',async(req,res)=>{
+  const data=req.body
+  const result= await ourproductcollection.insertOne(data)
   res.send(result)
 })
 
-// get user role
- app.get('/users/:email/role', async (req, res) => {
-      const email = req.params.email
-      const user = await usercollection.findOne({ email })
-      res.send({ role: user?.role || 'Buyer' , status:user?.status || 'pending'})
+
+     //our products home page
+    app.get('/our-products', async (req, res) => {
+     
+      const result = await ourproductcollection.find().limit(6).toArray()
+      res.send(result)
     })
 
-//our products home page
-app.get('/our-products',async(req,res)=>{
-  const limit=Number(req.query.limit)
-  if(limit){
-    const data= await productCollection.find().limit(6).toArray()
-    return res.send(data)
-  }
-    const result=await productCollection.find().toArray()
-    res.send(result)
-})
+    // products more details
+    app.get('/our-products/:id', async (req, res) => {
+      const id = req.params.id
+      const result = await productCollection.findOne({ _id: new ObjectId(id) })
+      res.send(result)
+    })
 
-// products more details
-app.get('/our-products/:id',async(req,res)=>{
-    const id=req.params.id
-    const result=await productCollection.findOne({_id:new ObjectId(id)})
-    res.send(result)
-})
+    // product delete by admin
+    app.delete('/delete/:id',async(req,res)=>{
+        const id = req.params.id
+      const query = { _id: new ObjectId(id) }
+      const result = await productCollection.deleteOne(query)
+      res.send(result)
+    })
+
+    // delivery collection
+    // buyer order add in db
+    app.post('/delivery', async (req, res) => {
+      const info = req.body
+      info.createdAt = new Date().toString()
+      info.status='pending'
+    const  trackingId=info.trackingId
+      logTracking(trackingId, 'parcel_created')
+      
+      const result = await deliverycollection.insertOne(info)
+      res.send(result)
+
+    })
+
+    // get singale user order by email
+     app.get('/orders', async (req, res) => {
+      const { email} = req.query
+      const query = {}
+
+      if (email) {
+        query.email = email
+      }
+    
+
+      const cursor = deliverycollection.find(query)
+      const result = await cursor.toArray()
+      res.send(result)
+    })
 
 
 
-app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+
+    // payment related api
+    app.post('/create-checkout-session', async (req, res) => {
+      const paymentinfo = req.body
+      const amount = Number(paymentinfo.cost) * 100
+      const session = await stripe.checkout.sessions.create({
+
+        line_items: [
+          {
+
+            price_data: {
+              currency: 'USD',
+              unit_amount: amount,
+              product_data: {
+                name: paymentinfo.ParcelName
+              },
+
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentinfo.Senderemail,
+        mode: 'payment',
+        metadata: {
+          parcelId: paymentinfo.parcelId,
+          parcelName:paymentinfo.ParcelName,
+          trackingId: paymentinfo.trackingId
+        },
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/all-orders`,
+      });
+
+      res.send({ url: session.url })
+
+    })
+
+//payment successful
+    app.patch('/payment-success', async (req, res) => {
+      const sessionId = req.query.session_id
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      console.log('session data', session)
+
+      const transactionId = session.payment_intent;
+      const query = { transactionId: transactionId }
+      const paymentExist = await paymentcollection.findOne(query)
+      if (paymentExist) {
+        return res.send({ message: 'payment already done', transactionId, trackingId: paymentExist.trackingId })
+      }
+
+
+
+      const trackingid = session.metadata.trackingId
+      if (session.payment_status === 'paid') {
+        const id = session.metadata.parcelId
+        const query = { _id: new ObjectId(id) }
+        const update = {
+          $set: {
+            paymentStatus: 'paid',
+            daliveryStatus: 'waiting for confirmation',
+            transactionId: session.payment_intent,
+
+          }
+        }
+        const result = await deliverycollection.updateOne(query, update)
+        // payment history
+        const paymentHistory = {
+          amount: session.amount_total / 100, 
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          parcelId: session.metadata.parcelId,
+          ParcelName: session.metadata.ParcelName,
+          transactionId: session.payment_intent,
+          paymentStatus: session.payment_status,
+          trackingId: trackingid,
+          paidAt: new Date()
+
+        }
+        if (session.payment_status === 'paid') {
+          const resultPayment = await paymentcollection.insertOne(paymentHistory)
+
+          logTracking(trackingid, 'waiting for confirmation')
+
+          return res.send({ success: true, modifyParcel: result, paymentInfo: resultPayment, trackingId: trackingid, transactionId: session.payment_intent, })
+        }
+
+      }
+      return res.send({ success: false })
+    })
+
+    app.get('/', (req, res) => {
+      res.send('Hello World!')
+    })
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
