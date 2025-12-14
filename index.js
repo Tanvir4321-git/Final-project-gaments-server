@@ -53,13 +53,13 @@ async function run() {
     const paymentcollection = db.collection('payment')
 
     //for parcel tracking
-    const logTracking = async (trackingId, status,date,location) => {
+    const logTracking = async (trackingId, status, date, location) => {
       const log = {
         trackingId,
         status,
         details: status.split('-').join(' '),
-       date,
-       location
+        date,
+        location
       }
       const result = await trackingcollection.insertOne(log)
       return result
@@ -225,7 +225,7 @@ async function run() {
     app.patch('/order-approved/:id', async (req, res) => {
       const id = req.params.id
       const { status, trackingId } = req.body
-    const timeStamp = new Date().toISOString();
+      const timeStamp = new Date().toISOString();
       const query = { _id: new ObjectId(id) }
       const update = {
         $set: {
@@ -237,7 +237,7 @@ async function run() {
 
       const result = await deliverycollection.updateOne(query, update)
       console.log(timeStamp)
-      logTracking(trackingId, 'order-accepted',timeStamp)
+      logTracking(trackingId, 'order-accepted', timeStamp)
       res.send(result)
 
     })
@@ -260,12 +260,12 @@ async function run() {
 
     // update tracking status
     app.post('/parcels/status', async (req, res) => {
-      const { status, trackingId,date,location } = req.body
-     
-  
-    const result= await logTracking(trackingId, status,date,location)
-     res.send(result)
-     
+      const { status, trackingId, date, location } = req.body
+
+
+      const result = await logTracking(trackingId, status, date, location)
+      res.send(result)
+
     })
 
 
@@ -276,11 +276,19 @@ async function run() {
       const info = req.body
       info.createdAt = new Date().toString()
       info.status = 'pending'
-     
-      
+      const quantity=info.quantityleft
+      const productId=info.productId
+      const query={_id: new ObjectId(productId)}
+      const update={
+        $set:{
+         availableQuantity:quantity
+        }
+      }
+
 
       const result = await deliverycollection.insertOne(info)
-      res.send(result)
+      const updatequantity=await productCollection.updateOne(query,update)
+      res.send({delivery: result,allporduct:updatequantity})
 
     })
 
@@ -299,8 +307,19 @@ async function run() {
       res.send(result)
     })
 
+    // get all order for admin
+    app.get('/ad-allorders', async (req, res) => {
+      const search = req.query.search.replace(/\s+/g, '')
+      const query = {
+
+        status: { $regex: search, $options: "i" }
+      }
+      const result = await deliverycollection.find(query).toArray()
+      res.send(result)
+    })
+
     // buyer order cancle 
-     app.delete('/myorder/:id', async (req, res) => {
+    app.delete('/myorder/:id', async (req, res) => {
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const result = await deliverycollection.deleteOne(query)
@@ -389,7 +408,7 @@ async function run() {
         if (session.payment_status === 'paid') {
           const resultPayment = await paymentcollection.insertOne(paymentHistory)
 
-       
+
 
           return res.send({ success: true, modifyParcel: result, paymentInfo: resultPayment, trackingId: trackingid, transactionId: session.payment_intent, })
         }
@@ -399,7 +418,7 @@ async function run() {
     })
 
 
-      //tracking related api
+    //tracking related api
     app.get('/trackings/:trackingId/logs', async (req, res) => {
       const trackingId = req.params.trackingId
       const query = { trackingId }
