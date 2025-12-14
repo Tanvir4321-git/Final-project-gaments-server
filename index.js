@@ -120,6 +120,14 @@ async function run() {
       res.send(result)
     })
 
+    // get all user for profile section
+     app.get('/user-profile/:email', async (req, res) => {
+      const email=req.params.email
+      const query={email:email}
+      const result = await usercollection.findOne(query)
+      res.send(result)
+    })
+
     // product related api
 
     // add product api
