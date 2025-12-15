@@ -223,9 +223,14 @@ async function run() {
 
     //All products products 
     app.get('/all-products', async (req, res) => {
+      const {limit=0,skip=0}=req.query
 
-      const result = await productCollection.find().toArray()
-      res.send(result)
+      const result = await productCollection
+      .find().limit(Number(limit))
+      .skip(Number(skip))
+      .project({description:0}).toArray()
+       const totalporductCount = await productCollection.countDocuments()
+      res.send({result,totalporduct:totalporductCount})
     })
 
     // show products on home page
