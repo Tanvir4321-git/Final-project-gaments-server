@@ -18,11 +18,48 @@ function generateTrackingId() {
   return `${prefix}-${date}-${random}`;
 }
 
+// firebasae admin key
+const admin = require("firebase-admin");
 
+
+
+const decoded = Buffer.from(process.env.FIRE_BASE_SERVICE_kEY, 'base64').toString('utf8')
+const serviceAccount = JSON.parse(decoded);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
 
 //mideleware
 app.use(express.json())
 app.use(cors())
+
+
+const verifyFbtoken = async (req, res, next) => {
+  const authorization = req.headers.authorization
+
+
+  if (!authorization) {
+    return res.status(401).send({ message: 'unauthorized access' })
+  }
+
+  try {
+    const token = authorization.split(' ')[1]
+    const decoded = await admin.auth().verifyIdToken(token)
+    req.decoded_email = decoded.email
+
+    next()
+  }
+  catch (err) {
+    return res.status(401).send({ message: "Invalid token", error: err.message })
+  }
+
+
+
+}
+
+
+
 
 //mongodb uri 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@first-mongobd-porject.tmjl5yc.mongodb.net/?appName=first-mongobd-porject`;
@@ -42,7 +79,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const db = client.db('final_project_garments')
     const productCollection = db.collection('products')
@@ -51,6 +88,37 @@ async function run() {
     const trackingcollection = db.collection('tracking')
     const deliverycollection = db.collection('delivery')
     const paymentcollection = db.collection('payment')
+
+
+ // admin midleware
+    const adminmidlware = async (req, res, next) => {
+      const email = req.decoded_email
+      const user = await usercollection.findOne({ email })
+      if (!user || user.role !== 'admin') {
+        return res.status(403).send({ message: 'Access Forbidden' });
+      }
+      next()
+    }
+ // Manager midleware
+    const managerMidlware = async (req, res, next) => {
+      const email = req.decoded_email
+      const user = await usercollection.findOne({ email })
+      if (!user || user.role !== 'Manager') {
+        return res.status(403).send({ message: 'Access Forbidden' });
+      }
+      next()
+    }
+ // Manager midleware
+    const buyerMidlware = async (req, res, next) => {
+      const email = req.decoded_email
+      const user = await usercollection.findOne({ email })
+      if (!user || user.role !== 'Buyer') {
+        return res.status(403).send({ message: 'Access Forbidden' });
+      }
+      next()
+    }
+
+
 
     //for parcel tracking
     const logTracking = async (trackingId, status, date, location) => {
@@ -92,28 +160,40 @@ async function run() {
     })
 
     // get user role
-    app.get('/users/:email/role', async (req, res) => {
+    app.get('/users/:email/role',verifyFbtoken, async (req, res) => {
       const email = req.params.email
       const user = await usercollection.findOne({ email })
       res.send({ role: user?.role || 'Buyer', status: user?.status || 'pending' })
     })
 
     // get all users for admin
-    app.get('/users', async (req, res) => {
-      const result = await usercollection.find().toArray()
+    app.get('/users',verifyFbtoken,adminmidlware, async (req, res) => {
+     const search = req.query.search.replace(/\s+/g, '')
+     const filter=req.query.filter
+       const query = {}
+    if (filter && filter !== 'all') {
+    query.role = filter
+  }
+  
+  
+  if (search) {
+    query.name = { $regex: search, $options: "i" }
+  }
+      const result = await usercollection.find(query).toArray()
       res.send(result)
     })
 
     // user status update
-    app.patch('/users/:id', async (req, res) => {
-      const status = req.body.status
+    app.patch('/users/:id',verifyFbtoken,adminmidlware, async (req, res) => {
+      const {status,feedback} = req.body
 
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
 
       const update = {
         $set: {
-          status: status
+          status: status,
+          feedback:feedback
         }
       }
       const result = await usercollection.updateOne(query, update)
@@ -121,7 +201,7 @@ async function run() {
     })
 
     // get all user for profile section
-     app.get('/user-profile/:email', async (req, res) => {
+     app.get('/user-profile/:email',verifyFbtoken, async (req, res) => {
       const email=req.params.email
       const query={email:email}
       const result = await usercollection.findOne(query)
@@ -131,7 +211,7 @@ async function run() {
     // product related api
 
     // add product api
-    app.post('/products', async (req, res) => {
+    app.post('/products',verifyFbtoken,managerMidlware, async (req, res) => {
       const productInfo = req.body
       const trackingId = generateTrackingId()
       productInfo.trackingId = trackingId
@@ -149,7 +229,7 @@ async function run() {
     })
 
     // show products on home page
-    app.post('/our-products', async (req, res) => {
+    app.post('/our-products',verifyFbtoken,adminmidlware, async (req, res) => {
       const data = req.body
       data.createdAt = new Date().toString()
       const id = data._id
@@ -180,7 +260,7 @@ async function run() {
     })
 
     // product delete by admin
-    app.delete('/delete/:id', async (req, res) => {
+    app.delete('/delete/:id',verifyFbtoken,adminmidlware, async (req, res) => {
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const result = await productCollection.deleteOne(query)
@@ -188,7 +268,7 @@ async function run() {
     })
 
     //product update by admin
-    app.patch('/product-update/:id', async (req, res) => {
+    app.patch('/product-update/:id',verifyFbtoken,adminmidlware, async (req, res) => {
       const updateinfo = req.body
 
       const id = req.params.id
@@ -204,7 +284,7 @@ async function run() {
     })
 
     // manage product by manager
-    app.get('/manage-products', async (req, res) => {
+    app.get('/manage-products',verifyFbtoken,managerMidlware, async (req, res) => {
       const email = req.query.email
       const search = req.query.search.replace(/\s+/g, '')
       const query = {
@@ -216,7 +296,7 @@ async function run() {
     })
 
     //get pendig orders for manager
-    app.get('/pending-orders', async (req, res) => {
+    app.get('/pending-orders',verifyFbtoken,managerMidlware, async (req, res) => {
       const email = req.query.email
 
 
@@ -230,7 +310,7 @@ async function run() {
     })
 
     //pending order status update by manager
-    app.patch('/order-approved/:id', async (req, res) => {
+    app.patch('/order-approved/:id',verifyFbtoken,managerMidlware, async (req, res) => {
       const id = req.params.id
       const { status, trackingId } = req.body
       const timeStamp = new Date().toISOString();
@@ -251,7 +331,7 @@ async function run() {
     })
 
     // get  approve order 
-    app.get('/approve-orders', async (req, res) => {
+    app.get('/approve-orders',verifyFbtoken,managerMidlware, async (req, res) => {
 
       const email = req.query.email
 
@@ -267,7 +347,7 @@ async function run() {
     })
 
     // update tracking status
-    app.post('/parcels/status', async (req, res) => {
+    app.post('/parcels/status',verifyFbtoken,managerMidlware, async (req, res) => {
       const { status, trackingId, date, location } = req.body
 
 
@@ -280,7 +360,7 @@ async function run() {
 
     // delivery collection
     // buyer order add in db
-    app.post('/delivery', async (req, res) => {
+    app.post('/delivery',verifyFbtoken, async (req, res) => {
       const info = req.body
       info.createdAt = new Date().toString()
       info.status = 'pending'
@@ -301,7 +381,7 @@ async function run() {
     })
 
     // get singale user order by email
-    app.get('/orders', async (req, res) => {
+    app.get('/orders',verifyFbtoken,buyerMidlware, async (req, res) => {
       const { email } = req.query
       const query = {}
 
@@ -316,7 +396,7 @@ async function run() {
     })
 
     // get all order for admin
-    app.get('/ad-allorders', async (req, res) => {
+    app.get('/ad-allorders',verifyFbtoken, async (req, res) => {
       const search = req.query.search.replace(/\s+/g, '')
       const query = {
 
@@ -327,7 +407,7 @@ async function run() {
     })
 
     // buyer order cancle 
-    app.delete('/myorder/:id', async (req, res) => {
+    app.delete('/myorder/:id',verifyFbtoken,buyerMidlware, async (req, res) => {
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const result = await deliverycollection.deleteOne(query)
@@ -440,8 +520,8 @@ async function run() {
     })
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
