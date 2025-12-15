@@ -221,7 +221,7 @@ async function run() {
       res.send(result)
     })
 
-    //All products products 
+    //All products products  
     app.get('/all-products', async (req, res) => {
       const {limit=0,skip=0}=req.query
 
@@ -231,6 +231,12 @@ async function run() {
       .project({description:0}).toArray()
        const totalporductCount = await productCollection.countDocuments()
       res.send({result,totalporduct:totalporductCount})
+    })
+
+    // all products for dash board
+    app.get('/dashboard-all-products',verifyFbtoken,  async(req,res)=>{
+      const result=await productCollection.find().toArray()
+      res.send(result)
     })
 
     // show products on home page
