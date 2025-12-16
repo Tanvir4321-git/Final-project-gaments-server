@@ -244,6 +244,7 @@ async function run() {
       const data = req.body
       data.createdAt = new Date().toString()
       const id = data._id
+      data.productId=data._id
       const query = { _id: new ObjectId(id) }
       const update = {
         $set: { showonHome: 'added' }
@@ -254,6 +255,24 @@ async function run() {
 
       res.send({ home: result, prduct: updateresult })
     })
+
+// rmove product from home page
+app.delete('/remove-from-homepage/:id',async(req,res)=>{
+  const id=req.params.id
+  const productId=req.params.id
+      const productquery={productId:productId}
+ const query = { _id: new ObjectId(id) }
+      const update = {
+        $set: { showonHome: 'Accept' }
+      }
+
+ const result = await ourproductcollection.deleteOne(productquery)
+      const updateresult = await productCollection.updateOne(query, update)
+res.send({ home: result, prduct: updateresult })
+})
+
+
+
 
 
     //our products home page
@@ -270,18 +289,22 @@ async function run() {
       res.send(result)
     })
 
-    // product delete by admin
-    app.delete('/delete/:id',verifyFbtoken,adminmidlware, async (req, res) => {
+    // product delete by admin and manager
+    app.delete('/delete/:id',verifyFbtoken, async (req, res) => {
       const id = req.params.id
+      const porductId=req.params.id
+      const productquery={productId:porductId}
       const query = { _id: new ObjectId(id) }
       const result = await productCollection.deleteOne(query)
-      res.send(result)
+      const ourproduct=await ourproductcollection.deleteOne(productquery)
+      res.send({allproduct:result,ourproduct:ourproduct})
     })
 
     //product update by admin
     app.patch('/product-update/:id',verifyFbtoken,adminmidlware, async (req, res) => {
       const updateinfo = req.body
-
+      const productId=req.params.id
+      const productquery={productId:productId}
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const update = {
@@ -289,7 +312,7 @@ async function run() {
 
       }
       const result = await productCollection.updateOne(query, update)
-      const resulthome = await ourproductcollection.updateOne(query, update)
+      const resulthome = await ourproductcollection.updateOne(productquery, update)
 
       res.send({ all: result, home: resulthome })
     })
