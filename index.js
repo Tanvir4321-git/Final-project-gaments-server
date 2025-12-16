@@ -213,8 +213,8 @@ async function run() {
     // add product api
     app.post('/products',verifyFbtoken,managerMidlware, async (req, res) => {
       const productInfo = req.body
-      const trackingId = generateTrackingId()
-      productInfo.trackingId = trackingId
+     
+      
       productInfo.createdAt = new Date().toString()
       productInfo.showonHomePage = 'Accept'
       const result = await productCollection.insertOne(productInfo)
@@ -300,8 +300,8 @@ res.send({ home: result, prduct: updateresult })
       res.send({allproduct:result,ourproduct:ourproduct})
     })
 
-    //product update by admin
-    app.patch('/product-update/:id',verifyFbtoken,adminmidlware, async (req, res) => {
+    //product update by admin manager
+    app.patch('/product-update/:id',verifyFbtoken, async (req, res) => {
       const updateinfo = req.body
       const productId=req.params.id
       const productquery={productId:productId}
@@ -358,7 +358,7 @@ res.send({ home: result, prduct: updateresult })
       }
 
       const result = await deliverycollection.updateOne(query, update)
-      console.log(timeStamp)
+      
       logTracking(trackingId, 'order-accepted', timeStamp)
       res.send(result)
 
@@ -396,6 +396,8 @@ res.send({ home: result, prduct: updateresult })
     // buyer order add in db
     app.post('/delivery',verifyFbtoken, async (req, res) => {
       const info = req.body
+       const trackingId = generateTrackingId()
+       info.trackingId=trackingId
       info.createdAt = new Date().toString()
       info.status = 'pending'
       const quantity=info.quantityleft
@@ -490,7 +492,7 @@ res.send({ home: result, prduct: updateresult })
     app.patch('/payment-success', async (req, res) => {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      console.log('session data', session)
+     
 
       const transactionId = session.payment_intent;
       const query = { transactionId: transactionId }
