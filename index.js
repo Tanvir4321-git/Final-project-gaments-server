@@ -90,7 +90,7 @@ async function run() {
     const paymentcollection = db.collection('payment')
 
 
- // admin midleware
+    // admin midleware
     const adminmidlware = async (req, res, next) => {
       const email = req.decoded_email
       const user = await usercollection.findOne({ email })
@@ -99,7 +99,7 @@ async function run() {
       }
       next()
     }
- // Manager midleware
+    // Manager midleware
     const managerMidlware = async (req, res, next) => {
       const email = req.decoded_email
       const user = await usercollection.findOne({ email })
@@ -108,7 +108,7 @@ async function run() {
       }
       next()
     }
- // Manager midleware
+    // buyer midleware
     const buyerMidlware = async (req, res, next) => {
       const email = req.decoded_email
       const user = await usercollection.findOne({ email })
@@ -160,32 +160,32 @@ async function run() {
     })
 
     // get user role
-    app.get('/users/:email/role',verifyFbtoken, async (req, res) => {
+    app.get('/users/:email/role', verifyFbtoken, async (req, res) => {
       const email = req.params.email
       const user = await usercollection.findOne({ email })
       res.send({ role: user?.role || 'Buyer', status: user?.status || 'pending' })
     })
 
     // get all users for admin
-    app.get('/users',verifyFbtoken,adminmidlware, async (req, res) => {
-     const search = req.query.search.replace(/\s+/g, '')
-     const filter=req.query.filter
-       const query = {}
-    if (filter && filter !== 'all') {
-    query.role = filter
-  }
-  
-  
-  if (search) {
-    query.name = { $regex: search, $options: "i" }
-  }
+    app.get('/users', verifyFbtoken, adminmidlware, async (req, res) => {
+      const search = req.query.search.replace(/\s+/g, '')
+      const filter = req.query.filter
+      const query = {}
+      if (filter && filter !== 'all') {
+        query.role = filter
+      }
+
+
+      if (search) {
+        query.name = { $regex: search, $options: "i" }
+      }
       const result = await usercollection.find(query).toArray()
       res.send(result)
     })
 
     // user status update
-    app.patch('/users/:id',verifyFbtoken,adminmidlware, async (req, res) => {
-      const {status,feedback} = req.body
+    app.patch('/users/:id', verifyFbtoken, adminmidlware, async (req, res) => {
+      const { status, feedback } = req.body
 
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
@@ -193,28 +193,128 @@ async function run() {
       const update = {
         $set: {
           status: status,
-          feedback:feedback
+          feedback: feedback
         }
       }
       const result = await usercollection.updateOne(query, update)
       res.send(result)
     })
 
+   // user profile update
+   app.patch('/porfileUpdate/:email', async (req,res)=>{
+    const {name,image}=req.body
+    const email=req.params.email
+     const query = { email: email }
+
+  const update = {
+        $set: {
+        name,image
+        }
+      }
+        const result = await usercollection.updateOne(query, update)
+      res.send(result)
+
+   })
+
     // get all user for profile section
-     app.get('/user-profile/:email',verifyFbtoken, async (req, res) => {
-      const email=req.params.email
-      const query={email:email}
+    app.get('/user-profile/:email', verifyFbtoken, async (req, res) => {
+      const email = req.params.email
+      const query = { email: email }
       const result = await usercollection.findOne(query)
       res.send(result)
     })
 
+
+  // dashboard related api
+
+    // users dashboard
+
+    app.get('/users/summary', async (req, res) => {
+  try {
+   
+
+    const result = await usercollection.aggregate([
+      {
+        $group: {
+          _id: "$role",
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalUsers: { $sum: "$count" },
+          roles: {
+            $push: {
+              role: "$_id",
+              count: "$count"
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          totalUsers: 1,
+          roles: 1
+        }
+      }
+    ]).toArray();
+
+    res.send(result[0]);
+  } catch (error) {
+    res.status(500).send({ message: error.message });
+  }
+});
+
+app.get('/orders/summary', async (req, res) => {
+  try {
+    const result = await trackingcollection.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 }
+        }
+      }
+    ]).toArray();
+
+    // array → object বানানো
+    const statusCounts = {};
+    let totalOrders = 0;
+
+    result.forEach(item => {
+      statusCounts[item._id] = item.count;
+      totalOrders += item.count;
+    });
+
+    res.send({
+      totalOrders,
+      statusCounts
+    });
+
+  } catch (error) {
+    console.error("STATUS SUMMARY ERROR:", error);
+    res.status(500).send({ message: error.message });
+  }
+});
+
+
+
+
+
+// total order
+app.get('/totalOrders',async(req,res)=>{
+  const result= await deliverycollection.countDocuments()
+  res.send(result)
+})
+
     // product related api
 
     // add product api
-    app.post('/products',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.post('/products', verifyFbtoken, managerMidlware, async (req, res) => {
       const productInfo = req.body
-     
-      
+
+
       productInfo.createdAt = new Date().toString()
       productInfo.showonHomePage = 'Accept'
       const result = await productCollection.insertOne(productInfo)
@@ -223,28 +323,48 @@ async function run() {
 
     //All products products  
     app.get('/all-products', async (req, res) => {
-      const {limit=0,skip=0}=req.query
+      const { limit = 0, skip = 0,filter,sort } = req.query
+     const search = (req.query.search || '').trim()
+
+      
+      const query = {}
+      if (filter && filter !== 'all') {
+        query.category = filter
+      }
+
+
+      if (search) {
+        query.productName = { $regex: search, $options: "i" }
+      }
+
+// Sorting
+    let sortQuery = {};
+    if (sort === 'lowToHigh') {
+        sortQuery = { price: 1 }; 
+    } else if (sort === 'highToLow') {
+        sortQuery = { price: -1 }; 
+    }
 
       const result = await productCollection
-      .find().limit(Number(limit))
-      .skip(Number(skip))
-      .project({description:0}).toArray()
-       const totalporductCount = await productCollection.countDocuments()
-      res.send({result,totalporduct:totalporductCount})
+        .find(query).sort(sortQuery).limit(Number(limit))
+        .skip(Number(skip))
+        .project({ description: 0 }).toArray()
+      const totalporductCount = await productCollection.countDocuments(query)
+      res.send({ result, totalporduct: totalporductCount })
     })
 
     // all products for dash board
-    app.get('/dashboard-all-products',verifyFbtoken,  async(req,res)=>{
-      const result=await productCollection.find().toArray()
+    app.get('/dashboard-all-products', verifyFbtoken, async (req, res) => {
+      const result = await productCollection.find().toArray()
       res.send(result)
     })
 
     // show products on home page
-    app.post('/our-products',verifyFbtoken,adminmidlware, async (req, res) => {
+    app.post('/our-products', verifyFbtoken, adminmidlware, async (req, res) => {
       const data = req.body
       data.createdAt = new Date().toString()
       const id = data._id
-      data.productId=data._id
+      data.productId = data._id
       const query = { _id: new ObjectId(id) }
       const update = {
         $set: { showonHome: 'added' }
@@ -256,20 +376,20 @@ async function run() {
       res.send({ home: result, prduct: updateresult })
     })
 
-// rmove product from home page
-app.delete('/remove-from-homepage/:id',async(req,res)=>{
-  const id=req.params.id
-  const productId=req.params.id
-      const productquery={productId:productId}
- const query = { _id: new ObjectId(id) }
+    // rmove product from home page
+    app.delete('/remove-from-homepage/:id', async (req, res) => {
+      const id = req.params.id
+      const productId = req.params.id
+      const productquery = { productId: productId }
+      const query = { _id: new ObjectId(id) }
       const update = {
         $set: { showonHome: 'Accept' }
       }
 
- const result = await ourproductcollection.deleteOne(productquery)
+      const result = await ourproductcollection.deleteOne(productquery)
       const updateresult = await productCollection.updateOne(query, update)
-res.send({ home: result, prduct: updateresult })
-})
+      res.send({ home: result, prduct: updateresult })
+    })
 
 
 
@@ -290,21 +410,21 @@ res.send({ home: result, prduct: updateresult })
     })
 
     // product delete by admin and manager
-    app.delete('/delete/:id',verifyFbtoken, async (req, res) => {
+    app.delete('/delete/:id', verifyFbtoken, async (req, res) => {
       const id = req.params.id
-      const porductId=req.params.id
-      const productquery={productId:porductId}
+      const porductId = req.params.id
+      const productquery = { productId: porductId }
       const query = { _id: new ObjectId(id) }
       const result = await productCollection.deleteOne(query)
-      const ourproduct=await ourproductcollection.deleteOne(productquery)
-      res.send({allproduct:result,ourproduct:ourproduct})
+      const ourproduct = await ourproductcollection.deleteOne(productquery)
+      res.send({ allproduct: result, ourproduct: ourproduct })
     })
 
     //product update by admin manager
-    app.patch('/product-update/:id',verifyFbtoken, async (req, res) => {
+    app.patch('/product-update/:id', verifyFbtoken, async (req, res) => {
       const updateinfo = req.body
-      const productId=req.params.id
-      const productquery={productId:productId}
+      const productId = req.params.id
+      const productquery = { productId: productId }
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const update = {
@@ -318,7 +438,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     // manage product by manager
-    app.get('/manage-products',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.get('/manage-products', verifyFbtoken, managerMidlware, async (req, res) => {
       const email = req.query.email
       const search = req.query.search.replace(/\s+/g, '')
       const query = {
@@ -330,7 +450,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     //get pendig orders for manager
-    app.get('/pending-orders',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.get('/pending-orders', verifyFbtoken, managerMidlware, async (req, res) => {
       const email = req.query.email
 
 
@@ -344,7 +464,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     //pending order status update by manager
-    app.patch('/order-approved/:id',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.patch('/order-approved/:id', verifyFbtoken, managerMidlware, async (req, res) => {
       const id = req.params.id
       const { status, trackingId } = req.body
       const timeStamp = new Date().toISOString();
@@ -358,14 +478,14 @@ res.send({ home: result, prduct: updateresult })
       }
 
       const result = await deliverycollection.updateOne(query, update)
-      
+
       logTracking(trackingId, 'order-accepted', timeStamp)
       res.send(result)
 
     })
 
     // get  approve order 
-    app.get('/approve-orders',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.get('/approve-orders', verifyFbtoken, managerMidlware, async (req, res) => {
 
       const email = req.query.email
 
@@ -381,7 +501,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     // update tracking status
-    app.post('/parcels/status',verifyFbtoken,managerMidlware, async (req, res) => {
+    app.post('/parcels/status', verifyFbtoken, managerMidlware, async (req, res) => {
       const { status, trackingId, date, location } = req.body
 
 
@@ -394,30 +514,30 @@ res.send({ home: result, prduct: updateresult })
 
     // delivery collection
     // buyer order add in db
-    app.post('/delivery',verifyFbtoken, async (req, res) => {
+    app.post('/delivery', verifyFbtoken, async (req, res) => {
       const info = req.body
-       const trackingId = generateTrackingId()
-       info.trackingId=trackingId
+      const trackingId = generateTrackingId()
+      info.trackingId = trackingId
       info.createdAt = new Date().toString()
       info.status = 'pending'
-      const quantity=info.quantityleft
-      const productId=info.productId
-      const query={_id: new ObjectId(productId)}
-      const update={
-        $set:{
-         availableQuantity:quantity
+      const quantity = info.quantityleft
+      const productId = info.productId
+      const query = { _id: new ObjectId(productId) }
+      const update = {
+        $set: {
+          availableQuantity: quantity
         }
       }
 
 
       const result = await deliverycollection.insertOne(info)
-      const updatequantity=await productCollection.updateOne(query,update)
-      res.send({delivery: result,allporduct:updatequantity})
+      const updatequantity = await productCollection.updateOne(query, update)
+      res.send({ delivery: result, allporduct: updatequantity })
 
     })
 
     // get singale user order by email
-    app.get('/orders',verifyFbtoken,buyerMidlware, async (req, res) => {
+    app.get('/orders', verifyFbtoken, buyerMidlware, async (req, res) => {
       const { email } = req.query
       const query = {}
 
@@ -432,7 +552,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     // get all order for admin
-    app.get('/ad-allorders',verifyFbtoken, async (req, res) => {
+    app.get('/ad-allorders', verifyFbtoken, async (req, res) => {
       const search = req.query.search.replace(/\s+/g, '')
       const query = {
 
@@ -443,7 +563,7 @@ res.send({ home: result, prduct: updateresult })
     })
 
     // buyer order cancle 
-    app.delete('/myorder/:id',verifyFbtoken,buyerMidlware, async (req, res) => {
+    app.delete('/myorder/:id', verifyFbtoken, buyerMidlware, async (req, res) => {
       const id = req.params.id
       const query = { _id: new ObjectId(id) }
       const result = await deliverycollection.deleteOne(query)
@@ -492,7 +612,7 @@ res.send({ home: result, prduct: updateresult })
     app.patch('/payment-success', async (req, res) => {
       const sessionId = req.query.session_id
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-     
+
 
       const transactionId = session.payment_intent;
       const query = { transactionId: transactionId }
